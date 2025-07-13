@@ -125,9 +125,9 @@
         import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, collection, addDoc, doc, updateDoc, deleteDoc, onSnapshot, query, orderBy } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // --- INICIO DE CONFIGURACIÓN DE FIREBASE (¡IMPORTANTE!) ---
+        // --- INICIO DE CONFIGURACIÓN DE FIREBASE (¡TU CONFIGURACIÓN REAL!) ---
         // ESTE OBJETO 'firebaseConfig' ES TU CONFIGURACIÓN REAL DE FIREBASE.
-        // GitHub Pages lo necesita así para conectar tu app a tu proyecto.
+        // NO LO MODIFIQUES A MENOS QUE CAMBIES TU PROYECTO DE FIREBASE.
         const firebaseConfig = {
           apiKey: "AIzaSyAOY5kXOOXIEXGNZF5ywLM4msFQFR2mc3Q",
           authDomain: "gestorarchivosfisicos.firebaseapp.com",
@@ -154,7 +154,21 @@
         window.isAuthReady = isAuthReady; 
         window.appId = firebaseConfig.projectId; // Use projectId as appId for public collection path
 
-        // Function to hide loading overlay
+        // --- Funciones de Utilidad ---
+        function showMessage(message, type = 'success') {
+            const msgBox = document.getElementById('message-box');
+            msgBox.textContent = message;
+            msgBox.className = 'message-box show'; // Reset classes
+            if (type === 'error') {
+                msgBox.classList.add('error');
+            } else {
+                msgBox.classList.remove('error');
+            }
+            setTimeout(() => {
+                msgBox.classList.remove('show');
+            }, 3000);
+        }
+
         function hideLoadingOverlay() {
             console.log("Intentando ocultar loading overlay.");
             const loadingOverlay = document.getElementById('loading-overlay');
@@ -407,15 +421,39 @@
     <div id="message-box" class="message-box"></div>
 
     <script type="module">
-        // Importar módulos de Firebase (ya están en el head, pero se redefinen para el scope del módulo)
-        import { getFirestore, collection, addDoc, getDocs, doc, updateDoc, deleteDoc, onSnapshot, query, orderBy } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        // Importar módulos de Firebase
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, doc, updateDoc, deleteDoc, onSnapshot, query, orderBy } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // Referencias globales de Firebase expuestas por el script del head
-        const db = window.firebaseDb;
-        const auth = window.firebaseAuth;
-        let currentUserId = window.currentUserId; // Se actualizará con el onAuthStateChanged
-        let isAuthReady = window.isAuthReady; // Se actualizará con el onAuthStateChanged
-        const appId = window.appId; // Ahora es firebaseConfig.projectId
+        // --- INICIO DE CONFIGURACIÓN DE FIREBASE (¡TU CONFIGURACIÓN REAL!) ---
+        // ESTE OBJETO 'firebaseConfig' ES TU CONFIGURACIÓN REAL DE FIREBASE.
+        // NO LO MODIFIQUES A MENOS QUE CAMBIES TU PROYECTO DE FIREBASE.
+        const firebaseConfig = {
+          apiKey: "AIzaSyAOY5kXOOXIEXGNZF5ywLM4msFQFR2mc3Q",
+          authDomain: "gestorarchivosfisicos.firebaseapp.com",
+          projectId: "gestorarchivosfisicos",
+          storageBucket: "gestorarchivosfisicos.firebasestorage.app",
+          messagingSenderId: "1087854555192",
+          appId: "1:1087854555192:web:d94f8b7fc6bf71c631f6cd"
+        };
+        // --- FIN DE CONFIGURACIÓN DE FIREBASE ---
+
+        // Initialize Firebase
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const auth = getAuth(app);
+
+        let currentUserId = null;
+        let isAuthReady = false;
+
+        // Expose Firebase objects globally (for debugging or if needed by other scripts)
+        window.firebaseApp = app;
+        window.firebaseDb = db;
+        window.firebaseAuth = auth;
+        window.currentUserId = currentUserId; 
+        window.isAuthReady = isAuthReady; 
+        window.appId = firebaseConfig.projectId; // Use projectId as appId for public collection path
 
         // --- Funciones de Utilidad ---
         function showMessage(message, type = 'success') {
@@ -432,38 +470,111 @@
             }, 3000);
         }
 
+        function hideLoadingOverlay() {
+            console.log("Intentando ocultar loading overlay.");
+            const loadingOverlay = document.getElementById('loading-overlay');
+            if (loadingOverlay) {
+                loadingOverlay.classList.add('hidden');
+                console.log("Loading overlay ocultado.");
+            }
+        }
+
+        // Set a timeout to hide loading overlay even if something goes wrong
+        setTimeout(() => {
+            if (!window.isAuthReady) {
+                console.warn("Timeout: Autenticación no completada en 15 segundos. Ocultando loading overlay.");
+                hideLoadingOverlay();
+                showMessage("La carga inicial tardó demasiado. Puede haber problemas de conexión o configuración de Firebase.", 'error');
+            }
+        }, 15000); // 15 segundos de timeout
+
         // --- Gestión de Vistas ---
         const mainMenu = document.getElementById('main-menu');
         const formAlta = document.getElementById('form-alta');
         const sectionConsulta = document.getElementById('section-consulta');
-        const sectionManageFields = document.getElementById('section-manage-fields'); // Nueva sección
+        const sectionManageFields = document.getElementById('section-manage-fields');
         const formAltaTitle = document.getElementById('form-alta-title');
         const expedienteIdToEdit = document.getElementById('expediente-id-to-edit');
-        const dynamicFieldsContainer = document.getElementById('dynamic-fields-container'); // Contenedor para campos dinámicos
-
+        const dynamicFieldsContainer = document.getElementById('dynamic-fields-container');
 
         function showView(viewId) {
             mainMenu.classList.add('hidden');
             formAlta.classList.add('hidden');
             sectionConsulta.classList.add('hidden');
-            sectionManageFields.classList.add('hidden'); // Ocultar nueva sección
+            sectionManageFields.classList.add('hidden');
 
             document.getElementById(viewId).classList.remove('hidden');
         }
 
         // --- Operaciones con Firestore ---
-        // Colecciones de Firestore
-        const expedientesCollectionRef = collection(db, `artifacts/${appId}/public/data/expedientes`);
-        const customFieldsCollectionRef = collection(db, `artifacts/${appId}/public/data/custom_fields`); // Nueva colección
+        const expedientesCollectionRef = collection(db, `artifacts/${window.appId}/public/data/expedientes`);
+        const customFieldsCollectionRef = collection(db, `artifacts/${window.appId}/public/data/custom_fields`);
 
-        let expedientes = []; // Array local para expedientes
-        let customFields = []; // Array local para campos personalizados
+        let expedientes = [];
+        let customFields = [];
+
+        // Authenticate user and set up auth state listener
+        onAuthStateChanged(auth, async (user) => {
+            console.log("onAuthStateChanged triggered. User object:", user);
+            if (user) {
+                currentUserId = user.uid;
+                console.log("Authenticated with UID:", currentUserId);
+            } else {
+                console.log("User not authenticated, attempting anonymous sign-in.");
+                try {
+                    await signInAnonymously(auth);
+                    currentUserId = auth.currentUser.uid;
+                    console.log("Signed in anonymously:", currentUserId);
+                } catch (error) {
+                    console.error("Firebase authentication error:", error);
+                    showMessage("Error de autenticación: " + error.message + ". La aplicación podría no funcionar correctamente.", 'error');
+                    currentUserId = 'anonymous_error_' + Math.random().toString(36).substring(2, 10);
+                }
+            }
+            window.currentUserId = currentUserId;
+            window.isAuthReady = true;
+            document.getElementById('user-id-display').textContent = `ID de Usuario: ${currentUserId}`;
+            
+            console.log("Auth ready, setting up Firestore listeners.");
+            
+            // Listener for Expedientes
+            const qExpedientes = query(expedientesCollectionRef, orderBy("asunto", "asc"));
+            onSnapshot(qExpedientes, (snapshot) => {
+                console.log("Firestore onSnapshot (expedientes) triggered. Data received:", snapshot.docs.length, "documents.");
+                expedientes = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                if (!sectionConsulta.classList.contains('hidden')) {
+                    loadExpedientesTable(document.getElementById('search-input').value);
+                }
+                hideLoadingOverlay();
+            }, (error) => {
+                console.error("Error fetching expedientes: ", error);
+                showMessage("Error al cargar expedientes: " + error.message, 'error');
+                hideLoadingOverlay();
+            });
+
+            // Listener for Custom Fields
+            const qCustomFields = query(customFieldsCollectionRef, orderBy("order", "asc"));
+            onSnapshot(qCustomFields, (snapshot) => {
+                console.log("Firestore onSnapshot (custom_fields) triggered. Data received:", snapshot.docs.length, "documents.");
+                customFields = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                if (!sectionManageFields.classList.contains('hidden')) {
+                    loadCustomFieldsTable();
+                }
+                if (!formAlta.classList.contains('hidden')) {
+                    generateDynamicFields(); // Regenerar campos si el formulario de alta está visible
+                }
+            }, (error) => {
+                console.error("Error fetching custom fields: ", error);
+                showMessage("Error al cargar campos personalizados: " + error.message, 'error');
+            });
+
+        });
 
         // Función para Ingresar Nuevo Expediente (ALTA) o Editar
         document.getElementById('alta-form').addEventListener('submit', async function(event) {
             event.preventDefault();
 
-            if (!isAuthReady) { // Usa la variable isAuthReady del scope del módulo
+            if (!isAuthReady) {
                 showMessage('Autenticando... Por favor, espera un momento.', 'error');
                 return;
             }
@@ -479,7 +590,7 @@
             };
 
             // Recopilar datos de campos dinámicos
-            window.customFields.forEach(field => {
+            customFields.forEach(field => {
                 const inputElement = document.getElementById(`dynamic-${field.name.replace(/\s+/g, '_').toLowerCase()}`);
                 if (inputElement) {
                     expedienteData[field.name] = inputElement.value.trim();
@@ -498,23 +609,21 @@
 
             try {
                 if (currentExpedienteId) {
-                    // Si hay un ID, estamos EDITANDO un expediente existente
-                    const docRef = doc(db, `artifacts/${appId}/public/data/expedientes`, currentExpedienteId);
+                    const docRef = doc(db, `artifacts/${window.appId}/public/data/expedientes`, currentExpedienteId);
                     await updateDoc(docRef, expedienteData);
                     showMessage('Expediente actualizado correctamente.');
                 } else {
-                    // Si no hay ID, estamos CREANDO un nuevo expediente
                     expedienteData.estado = 'En Archivo';
-                    expedienteData.fecha_ultimo_movimiento = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
-                    expedienteData.persona_movimiento = window.currentUserId; // Quien lo dio de alta
+                    expedienteData.fecha_ultimo_movimiento = new Date().toISOString().split('T')[0];
+                    expedienteData.persona_movimiento = window.currentUserId;
                     await addDoc(expedientesCollectionRef, expedienteData);
                     showMessage('Expediente guardado correctamente en la nube.');
                 }
-                this.reset(); // Limpiar el formulario
-                expedienteIdToEdit.value = ''; // Limpiar el ID de edición
-                formAltaTitle.textContent = 'Ingresar Nuevo Expediente'; // Restablecer título
-                document.getElementById('submit-alta-form').textContent = 'Guardar Expediente'; // Restablecer texto del botón
-                showView('section-consulta'); // Volver a la vista de consulta
+                this.reset();
+                expedienteIdToEdit.value = '';
+                formAltaTitle.textContent = 'Ingresar Nuevo Expediente';
+                document.getElementById('submit-alta-form').textContent = 'Guardar Expediente';
+                showView('section-consulta');
             } catch (e) {
                 console.error("Error al guardar/actualizar documento: ", e);
                 showMessage('Error al guardar/actualizar expediente: ' + e.message, 'error');
@@ -526,7 +635,7 @@
         function loadExpedientesTable(filterText = '') {
             const tableHeadRow = document.querySelector('#expedientes-table thead tr');
             const tableBody = document.querySelector('#expedientes-table tbody');
-            tableBody.innerHTML = ''; // Limpiar cuerpo de la tabla
+            tableBody.innerHTML = '';
 
             // Limpiar y reconstruir encabezados para incluir campos dinámicos
             tableHeadRow.innerHTML = `
@@ -540,7 +649,7 @@
                 <th>Persona Mov.</th>
                 <th>Notas</th>
             `;
-            window.customFields.forEach(field => {
+            customFields.forEach(field => {
                 const th = document.createElement('th');
                 th.textContent = field.name;
                 tableHeadRow.appendChild(th);
@@ -553,22 +662,22 @@
 
             if (filteredExpedientes.length === 0 && filterText) {
                 const row = tableBody.insertRow();
-                row.innerHTML = `<td colspan="${9 + window.customFields.length}" class="text-center py-4 text-gray-500">No se encontraron expedientes con ese asunto.</td>`;
+                row.innerHTML = `<td colspan="${9 + customFields.length}" class="text-center py-4 text-gray-500">No se encontraron expedientes con ese asunto.</td>`;
                 return;
             } else if (filteredExpedientes.length === 0) {
                  const row = tableBody.insertRow();
-                row.innerHTML = `<td colspan="${9 + window.customFields.length}" class="text-center py-4 text-gray-500">No hay expedientes registrados.</td>`;
+                row.innerHTML = `<td colspan="${9 + customFields.length}" class="text-center py-4 text-gray-500">No hay expedientes registrados.</td>`;
                 return;
             }
 
 
             filteredExpedientes.forEach(exp => {
                 const row = tableBody.insertRow();
-                row.dataset.id = exp.id; // Guardar el ID del documento de Firestore
-                row.classList.add('cursor-pointer', 'hover:bg-blue-50'); // Estilo para indicar que es seleccionable
+                row.dataset.id = exp.id;
+                row.classList.add('cursor-pointer', 'hover:bg-blue-50');
 
                 let rowHtml = `
-                    <td>${exp.id.substring(0, 5)}...</td> <!-- Mostrar ID corto -->
+                    <td>${exp.id.substring(0, 5)}...</td>
                     <td>${exp.asunto}</td>
                     <td>${exp.tipo_documento}</td>
                     <td>${exp.fecha_documento}</td>
@@ -579,19 +688,15 @@
                     <td>${exp.notas || ''}</td>
                 `;
 
-                // Añadir celdas para campos dinámicos
-                window.customFields.forEach(field => {
-                    const fieldValue = exp[field.name] || ''; // Obtener el valor del campo dinámico
+                customFields.forEach(field => {
+                    const fieldValue = exp[field.name] || '';
                     rowHtml += `<td>${fieldValue}</td>`;
                 });
                 row.innerHTML = rowHtml;
 
 
-                // Añadir evento de clic para seleccionar la fila
                 row.addEventListener('click', () => {
-                    // Remover selección de otras filas
                     document.querySelectorAll('#expedientes-table tbody tr').forEach(r => r.classList.remove('bg-blue-200'));
-                    // Añadir selección a la fila clicada
                     row.classList.add('bg-blue-200');
                 });
             });
@@ -604,7 +709,7 @@
                 showMessage('Por favor, selecciona un expediente de la lista.', 'error');
                 return null;
             }
-            return selectedRow.dataset.id; // Retorna el ID completo de Firestore
+            return selectedRow.dataset.id;
         }
 
         // Función para Retirar Expediente (Baja Lógica)
@@ -615,11 +720,11 @@
             const persona = prompt('Por favor, ingresa el nombre de la persona que retira el expediente:');
             if (persona) {
                 try {
-                    const docRef = doc(db, `artifacts/${appId}/public/data/expedientes`, id);
+                    const docRef = doc(db, `artifacts/${window.appId}/public/data/expedientes`, id);
                     await updateDoc(docRef, {
                         estado: 'Retirado',
                         fecha_ultimo_movimiento: new Date().toISOString().split('T')[0],
-                        persona_movimiento: persona // Registra la persona que retira
+                        persona_movimiento: persona
                     });
                     showMessage('Expediente marcado como RETIRADO.');
                 } catch (e) {
@@ -639,11 +744,11 @@
             const persona = prompt('Por favor, ingresa el nombre de la persona que regresa el expediente:');
             if (persona) {
                 try {
-                    const docRef = doc(db, `artifacts/${appId}/public/data/expedientes`, id);
+                    const docRef = doc(db, `artifacts/${window.appId}/public/data/expedientes`, id);
                     await updateDoc(docRef, {
                         estado: 'En Archivo',
                         fecha_ultimo_movimiento: new Date().toISOString().split('T')[0],
-                        persona_movimiento: persona // Registra la persona que regresa
+                        persona_movimiento: persona
                     });
                     showMessage('Expediente marcado como EN ARCHIVO.');
                 } catch (e) {
@@ -662,29 +767,26 @@
 
             const expedienteToEdit = expedientes.find(exp => exp.id === id);
             if (expedienteToEdit) {
-                // Precargar los campos fijos
                 document.getElementById('asunto').value = expedienteToEdit.asunto;
                 document.getElementById('tipo_documento').value = expedienteToEdit.tipo_documento;
                 document.getElementById('fecha_documento').value = expedienteToEdit.fecha_documento;
                 document.getElementById('edificio').value = expedienteToEdit.edificio;
-                document.getElementById('armario').value = expedienteToEdit.armario;
+                document.getElementById('armario').value = expedienteToEdit.armario; // Corrected line
                 document.getElementById('cajon').value = expedienteToEdit.cajon;
                 document.getElementById('notas').value = expedienteToEdit.notas;
                 
-                // Precargar los campos dinámicos
-                window.customFields.forEach(field => {
+                customFields.forEach(field => {
                     const inputElement = document.getElementById(`dynamic-${field.name.replace(/\s+/g, '_').toLowerCase()}`);
                     if (inputElement && expedienteToEdit[field.name] !== undefined) {
                         inputElement.value = expedienteToEdit[field.name];
                     }
                 });
 
-                // Guardar el ID del expediente en el campo oculto para saber que estamos editando
                 expedienteIdToEdit.value = expedienteToEdit.id;
-                formAltaTitle.textContent = 'Editar Expediente'; // Cambiar el título del formulario
-                document.getElementById('submit-alta-form').textContent = 'Actualizar Expediente'; // Cambiar texto del botón
+                formAltaTitle.textContent = 'Editar Expediente';
+                document.getElementById('submit-alta-form').textContent = 'Actualizar Expediente';
 
-                showView('form-alta'); // Mostrar el formulario de alta/edición
+                showView('form-alta');
             } else {
                 showMessage('No se encontró el expediente para editar.', 'error');
             }
@@ -698,7 +800,7 @@
 
             if (confirm('¿Estás seguro de que quieres ELIMINAR este expediente de forma definitiva? Esta acción no se puede deshacer.')) {
                 try {
-                    const docRef = doc(db, `artifacts/${appId}/public/data/expedientes`, id);
+                    const docRef = doc(db, `artifacts/${window.appId}/public/data/expedientes`, id);
                     await deleteDoc(docRef);
                     showMessage('Expediente eliminado definitivamente.');
                 } catch (e) {
@@ -724,8 +826,7 @@
                 return;
             }
 
-            // Simple validation to prevent duplicate names (case-insensitive)
-            if (window.customFields.some(field => field.name.toLowerCase() === fieldName.toLowerCase())) {
+            if (customFields.some(field => field.name.toLowerCase() === fieldName.toLowerCase())) {
                 showMessage('Ya existe un campo con ese nombre.', 'error');
                 return;
             }
@@ -734,7 +835,7 @@
                 const newField = {
                     name: fieldName,
                     type: fieldType,
-                    order: window.customFields.length // Simple ordering
+                    order: customFields.length
                 };
                 await addDoc(customFieldsCollectionRef, newField);
                 showMessage('Campo personalizado añadido correctamente.');
@@ -749,13 +850,13 @@
             const tableBody = document.querySelector('#custom-fields-table tbody');
             tableBody.innerHTML = '';
 
-            if (window.customFields.length === 0) {
+            if (customFields.length === 0) {
                 const row = tableBody.insertRow();
                 row.innerHTML = `<td colspan="4" class="text-center py-4 text-gray-500">No hay campos personalizados definidos.</td>`;
                 return;
             }
 
-            window.customFields.forEach(field => {
+            customFields.forEach(field => {
                 const row = tableBody.insertRow();
                 row.dataset.id = field.id;
                 row.innerHTML = `
@@ -772,7 +873,7 @@
         window.deleteCustomField = async function(fieldId) {
             if (confirm('¿Estás seguro de que quieres eliminar este campo personalizado? Esto NO eliminará los datos ya guardados en los expedientes, solo el campo de la definición.')) {
                 try {
-                    const docRef = doc(db, `artifacts/${appId}/public/data/custom_fields`, fieldId);
+                    const docRef = doc(db, `artifacts/${window.appId}/public/data/custom_fields`, fieldId);
                     await deleteDoc(docRef);
                     showMessage('Campo personalizado eliminado.');
                 } catch (e) {
@@ -786,7 +887,7 @@
         function generateDynamicFields() {
             dynamicFieldsContainer.innerHTML = ''; // Limpiar campos dinámicos existentes
 
-            window.customFields.forEach(field => {
+            customFields.forEach(field => {
                 const div = document.createElement('div');
                 const label = document.createElement('label');
                 label.htmlFor = `dynamic-${field.name.replace(/\s+/g, '_').toLowerCase()}`;
@@ -859,7 +960,7 @@
             }
         });
 
-        document.getElementById('btn-clear-search').addEventListener(() => {
+        document.getElementById('btn-clear-search').addEventListener('click', () => { // Corrected
             document.getElementById('search-input').value = '';
             loadExpedientesTable();
         });
