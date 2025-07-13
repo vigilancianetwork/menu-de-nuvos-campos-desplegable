@@ -125,18 +125,13 @@
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, collection, addDoc, getDocs, doc, updateDoc, deleteDoc, onSnapshot, query, orderBy } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // --- INICIO DE CONFIGURACIÓN DE FIREBASE (¡IMPORTANTE!) ---
-        // ESTE OBJETO 'firebaseConfig' YA HA SIDO REEMPLAZADO CON TU CONFIGURACIÓN REAL.
-        // NO LO MODIFIQUES A MENOS QUE CAMBIES TU PROYECTO DE FIREBASE.
-        const firebaseConfig = {
-          apiKey: "AIzaSyAOY5kXOOXIEXGNZF5ywLM4msFQFR2mc3Q",
-          authDomain: "gestorarchivosfisicos.firebaseapp.com",
-          projectId: "gestorarchivosfisicos",
-          storageBucket: "gestorarchivosfisicos.firebasestorage.app",
-          messagingSenderId: "1087854555192",
-          appId: "1:1087854555192:web:d94f8b7fc6bf71c631f6cd"
-        };
-        // --- FIN DE CONFIGURACIÓN DE FIREBASE ---
+        // --- INICIO DE CONFIGURACIÓN DE FIREBASE (¡PARA ENTORNO CANVAS!) ---
+        // ESTAS VARIABLES SON PROPORCIONADAS AUTOMÁTICAMENTE POR EL ENTORNO DE CANVAS.
+        // NO DEBEN SER REEMPLAZADAS CON TU firebaseConfig REAL AQUÍ.
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+        // --- FIN DE CONFIGURACIÓN DE FIREBASE (PARA ENTORNO CANVAS) ---
 
         // Initialize Firebase
         const app = initializeApp(firebaseConfig);
@@ -150,9 +145,9 @@
         window.firebaseApp = app;
         window.firebaseDb = db;
         window.firebaseAuth = auth;
-        window.currentUserId = currentUserId;
-        window.isAuthReady = isAuthReady;
-        window.appId = firebaseConfig.projectId; // Use projectId as appId for public collection path
+        window.currentUserId = currentUserId; // Initialize global currentUserId
+        window.isAuthReady = isAuthReady; // Initialize global isAuthReady
+        window.appId = appId; // Use appId provided by Canvas for public collection path
 
         // Function to hide loading overlay
         function hideLoadingOverlay() {
@@ -175,35 +170,41 @@
 
         // Authenticate user and set up auth state listener
         onAuthStateChanged(auth, async (user) => {
-            console.log("onAuthStateChanged triggered.");
+            console.log("onAuthStateChanged triggered. User object:", user);
             if (user) {
                 currentUserId = user.uid;
                 console.log("Authenticated with UID:", currentUserId);
             } else {
                 console.log("User not authenticated, attempting anonymous sign-in.");
                 try {
-                    // No hay initialAuthToken fuera de Canvas, siempre signInAnonymously
-                    await signInAnonymously(auth);
-                    currentUserId = auth.currentUser.uid;
-                    console.log("Signed in anonymously:", currentUserId);
+                    // Use initialAuthToken provided by Canvas, or signInAnonymously if not available
+                    if (initialAuthToken) {
+                        await signInWithCustomToken(auth, initialAuthToken);
+                        currentUserId = auth.currentUser.uid;
+                        console.log("Signed in with custom token:", currentUserId);
+                    } else {
+                        await signInAnonymously(auth);
+                        currentUserId = auth.currentUser.uid;
+                        console.log("Signed in anonymously:", currentUserId);
+                    }
                 } catch (error) {
                     console.error("Firebase authentication error:", error);
                     showMessage("Error de autenticación: " + error.message + ". La aplicación podría no funcionar correctamente.", 'error');
                     currentUserId = 'anonymous_error_' + Math.random().toString(36).substring(2, 10); // Fallback ID
                 }
             }
-            window.currentUserId = currentUserId; // Update global userId
+            window.currentUserId = currentUserId; // Update global userId after authentication attempt
             window.isAuthReady = true; // Mark auth as ready
-            document.getElementById('user-id-display').textContent = `ID de Usuario: ${currentUserId}`;
+            document.getElementById('user-id-display').textContent = `ID de Usuario: ${currentUserId}`; // Update display immediately
             
             // Now that auth is ready, set up the Firestore listener for expedientes and custom fields
             console.log("Auth ready, setting up Firestore listeners.");
             
             // Listener for Expedientes
-            const expedientesCollectionRef = collection(db, `artifacts/${firebaseConfig.projectId}/public/data/expedientes`);
+            const expedientesCollectionRef = collection(db, `artifacts/${appId}/public/data/expedientes`); // Use appId from Canvas
             const qExpedientes = query(expedientesCollectionRef, orderBy("asunto", "asc"));
             onSnapshot(qExpedientes, (snapshot) => {
-                console.log("Firestore onSnapshot (expedientes) triggered. Data received.");
+                console.log("Firestore onSnapshot (expedientes) triggered. Data received:", snapshot.docs.length, "documents.");
                 window.expedientes = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                 if (!document.getElementById('section-consulta').classList.contains('hidden')) {
                     loadExpedientesTable(document.getElementById('search-input').value);
@@ -216,14 +217,18 @@
             });
 
             // Listener for Custom Fields
-            const customFieldsCollectionRef = collection(db, `artifacts/${firebaseConfig.projectId}/public/data/custom_fields`);
+            const customFieldsCollectionRef = collection(db, `artifacts/${appId}/public/data/custom_fields`); // Use appId from Canvas
             const qCustomFields = query(customFieldsCollectionRef, orderBy("order", "asc")); // Order custom fields
             onSnapshot(qCustomFields, (snapshot) => {
-                console.log("Firestore onSnapshot (custom_fields) triggered. Data received.");
+                console.log("Firestore onSnapshot (custom_fields) triggered. Data received:", snapshot.docs.length, "documents.");
                 window.customFields = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                 // If on the manage fields view, reload the table
                 if (!document.getElementById('section-manage-fields').classList.contains('hidden')) {
                     loadCustomFieldsTable();
+                }
+                // Also regenerate fields in the form if it's visible, as custom fields might have changed
+                if (!document.getElementById('form-alta').classList.contains('hidden')) {
+                    generateDynamicFields();
                 }
             }, (error) => {
                 console.error("Error fetching custom fields: ", error);
@@ -299,6 +304,10 @@
                 <div>
                     <label for="notas" class="label">Notas Adicionales:</label>
                     <textarea id="notas" name="notas" rows="3" class="input-field"></textarea>
+                </div>
+                <!-- Contenedor para campos dinámicos -->
+                <div id="dynamic-fields-container" class="space-y-4">
+                    <!-- Los campos personalizados se generarán aquí -->
                 </div>
                 <div class="flex justify-center space-x-4 mt-6">
                     <button type="submit" id="submit-alta-form" class="btn btn-primary">Guardar Expediente</button>
@@ -432,6 +441,7 @@
         const sectionManageFields = document.getElementById('section-manage-fields'); // Nueva sección
         const formAltaTitle = document.getElementById('form-alta-title');
         const expedienteIdToEdit = document.getElementById('expediente-id-to-edit');
+        const dynamicFieldsContainer = document.getElementById('dynamic-fields-container'); // Contenedor para campos dinámicos
 
 
         function showView(viewId) {
@@ -455,7 +465,7 @@
         document.getElementById('alta-form').addEventListener('submit', async function(event) {
             event.preventDefault();
 
-            if (!isAuthReady) {
+            if (!isAuthReady) { // Usa la variable isAuthReady del scope del módulo
                 showMessage('Autenticando... Por favor, espera un momento.', 'error');
                 return;
             }
@@ -470,10 +480,19 @@
                 notas: document.getElementById('notas').value.trim()
             };
 
-            // Validaciones básicas
+            // Recopilar datos de campos dinámicos
+            window.customFields.forEach(field => {
+                const inputElement = document.getElementById(`dynamic-${field.name.replace(/\s+/g, '_').toLowerCase()}`);
+                if (inputElement) {
+                    expedienteData[field.name] = inputElement.value.trim();
+                }
+            });
+
+
+            // Validaciones básicas (solo para campos fijos por ahora)
             if (!expedienteData.asunto || !expedienteData.tipo_documento || !expedienteData.fecha_documento ||
                 !expedienteData.edificio || !expedienteData.armario || !expedienteData.cajon) {
-                showMessage('Por favor, completa todos los campos obligatorios.', 'error');
+                showMessage('Por favor, completa todos los campos obligatorios (fijos).', 'error');
                 return;
             }
 
@@ -507,8 +526,28 @@
 
         // Función para Cargar y Mostrar Expedientes en la Tabla
         function loadExpedientesTable(filterText = '') {
+            const tableHeadRow = document.querySelector('#expedientes-table thead tr');
             const tableBody = document.querySelector('#expedientes-table tbody');
-            tableBody.innerHTML = ''; // Limpiar tabla
+            tableBody.innerHTML = ''; // Limpiar cuerpo de la tabla
+
+            // Limpiar y reconstruir encabezados para incluir campos dinámicos
+            tableHeadRow.innerHTML = `
+                <th>ID</th>
+                <th>Asunto</th>
+                <th>Tipo</th>
+                <th>Fecha Doc.</th>
+                <th>Ubicación</th>
+                <th>Estado</th>
+                <th>Últ. Mov.</th>
+                <th>Persona Mov.</th>
+                <th>Notas</th>
+            `;
+            window.customFields.forEach(field => {
+                const th = document.createElement('th');
+                th.textContent = field.name;
+                tableHeadRow.appendChild(th);
+            });
+
 
             const filteredExpedientes = expedientes.filter(exp =>
                 exp.asunto.toLowerCase().includes(filterText.toLowerCase())
@@ -516,11 +555,11 @@
 
             if (filteredExpedientes.length === 0 && filterText) {
                 const row = tableBody.insertRow();
-                row.innerHTML = `<td colspan="9" class="text-center py-4 text-gray-500">No se encontraron expedientes con ese asunto.</td>`;
+                row.innerHTML = `<td colspan="${9 + window.customFields.length}" class="text-center py-4 text-gray-500">No se encontraron expedientes con ese asunto.</td>`;
                 return;
             } else if (filteredExpedientes.length === 0) {
                  const row = tableBody.insertRow();
-                row.innerHTML = `<td colspan="9" class="text-center py-4 text-gray-500">No hay expedientes registrados.</td>`;
+                row.innerHTML = `<td colspan="${9 + window.customFields.length}" class="text-center py-4 text-gray-500">No hay expedientes registrados.</td>`;
                 return;
             }
 
@@ -530,7 +569,7 @@
                 row.dataset.id = exp.id; // Guardar el ID del documento de Firestore
                 row.classList.add('cursor-pointer', 'hover:bg-blue-50'); // Estilo para indicar que es seleccionable
 
-                row.innerHTML = `
+                let rowHtml = `
                     <td>${exp.id.substring(0, 5)}...</td> <!-- Mostrar ID corto -->
                     <td>${exp.asunto}</td>
                     <td>${exp.tipo_documento}</td>
@@ -541,6 +580,14 @@
                     <td>${exp.persona_movimiento || ''}</td>
                     <td>${exp.notas || ''}</td>
                 `;
+
+                // Añadir celdas para campos dinámicos
+                window.customFields.forEach(field => {
+                    const fieldValue = exp[field.name] || ''; // Obtener el valor del campo dinámico
+                    rowHtml += `<td>${fieldValue}</td>`;
+                });
+                row.innerHTML = rowHtml;
+
 
                 // Añadir evento de clic para seleccionar la fila
                 row.addEventListener('click', () => {
@@ -617,7 +664,7 @@
 
             const expedienteToEdit = expedientes.find(exp => exp.id === id);
             if (expedienteToEdit) {
-                // Precargar el formulario con los datos del expediente
+                // Precargar los campos fijos
                 document.getElementById('asunto').value = expedienteToEdit.asunto;
                 document.getElementById('tipo_documento').value = expedienteToEdit.tipo_documento;
                 document.getElementById('fecha_documento').value = expedienteToEdit.fecha_documento;
@@ -626,6 +673,14 @@
                 document.getElementById('cajon').value = expedienteToEdit.cajon;
                 document.getElementById('notas').value = expedienteToEdit.notas;
                 
+                // Precargar los campos dinámicos
+                window.customFields.forEach(field => {
+                    const inputElement = document.getElementById(`dynamic-${field.name.replace(/\s+/g, '_').toLowerCase()}`);
+                    if (inputElement && expedienteToEdit[field.name] !== undefined) {
+                        inputElement.value = expedienteToEdit[field.name];
+                    }
+                });
+
                 // Guardar el ID del expediente en el campo oculto para saber que estamos editando
                 expedienteIdToEdit.value = expedienteToEdit.id;
                 formAltaTitle.textContent = 'Editar Expediente'; // Cambiar el título del formulario
@@ -729,12 +784,56 @@
             }
         };
 
+        // --- Función para generar campos dinámicos en el formulario de alta/edición ---
+        function generateDynamicFields() {
+            dynamicFieldsContainer.innerHTML = ''; // Limpiar campos dinámicos existentes
+
+            window.customFields.forEach(field => {
+                const div = document.createElement('div');
+                const label = document.createElement('label');
+                label.htmlFor = `dynamic-${field.name.replace(/\s+/g, '_').toLowerCase()}`;
+                label.className = 'label';
+                label.textContent = `${field.name}:`;
+                div.appendChild(label);
+
+                let inputElement;
+                switch (field.type) {
+                    case 'text':
+                        inputElement = document.createElement('input');
+                        inputElement.type = 'text';
+                        break;
+                    case 'number':
+                        inputElement = document.createElement('input');
+                        inputElement.type = 'number';
+                        break;
+                    case 'date':
+                        inputElement = document.createElement('input');
+                        inputElement.type = 'date';
+                        break;
+                    // case 'select': // Implementación futura para listas desplegables
+                    //     inputElement = document.createElement('select');
+                    //     // Aquí necesitarías cargar las opciones para la lista desplegable
+                    //     break;
+                    default:
+                        inputElement = document.createElement('input');
+                        inputElement.type = 'text'; // Default to text
+                }
+                inputElement.id = `dynamic-${field.name.replace(/\s+/g, '_').toLowerCase()}`;
+                inputElement.name = field.name; // Usar el nombre del campo como 'name'
+                inputElement.className = 'input-field';
+                div.appendChild(inputElement);
+                dynamicFieldsContainer.appendChild(div);
+            });
+        }
+
+
         // --- Eventos de Navegación ---
         document.getElementById('btn-show-alta').addEventListener('click', () => {
             document.getElementById('alta-form').reset();
             expedienteIdToEdit.value = '';
             formAltaTitle.textContent = 'Ingresar Nuevo Expediente';
             document.getElementById('submit-alta-form').textContent = 'Guardar Expediente';
+            generateDynamicFields(); // Generar campos dinámicos al mostrar el formulario de alta
             showView('form-alta');
         });
         document.getElementById('btn-show-consulta').addEventListener('click', () => {
