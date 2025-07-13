@@ -122,16 +122,21 @@
     <!-- Firebase SDKs -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, collection, addDoc, getDocs, doc, updateDoc, deleteDoc, onSnapshot, query, orderBy } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, doc, updateDoc, deleteDoc, onSnapshot, query, orderBy } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // --- INICIO DE CONFIGURACIÓN DE FIREBASE (¡PARA ENTORNO CANVAS!) ---
-        // ESTAS VARIABLES SON PROPORCIONADAS AUTOMÁTICAMENTE POR EL ENTORNO DE CANVAS.
-        // NO DEBEN SER REEMPLAZADAS CON TU firebaseConfig REAL AQUÍ.
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-        const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
-        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
-        // --- FIN DE CONFIGURACIÓN DE FIREBASE (PARA ENTORNO CANVAS) ---
+        // --- INICIO DE CONFIGURACIÓN DE FIREBASE (¡IMPORTANTE!) ---
+        // ESTE OBJETO 'firebaseConfig' ES TU CONFIGURACIÓN REAL DE FIREBASE.
+        // GitHub Pages lo necesita así para conectar tu app a tu proyecto.
+        const firebaseConfig = {
+          apiKey: "AIzaSyAOY5kXOOXIEXGNZF5ywLM4msFQFR2mc3Q",
+          authDomain: "gestorarchivosfisicos.firebaseapp.com",
+          projectId: "gestorarchivosfisicos",
+          storageBucket: "gestorarchivosfisicos.firebasestorage.app",
+          messagingSenderId: "1087854555192",
+          appId: "1:1087854555192:web:d94f8b7fc6bf71c631f6cd"
+        };
+        // --- FIN DE CONFIGURACIÓN DE FIREBASE ---
 
         // Initialize Firebase
         const app = initializeApp(firebaseConfig);
@@ -141,13 +146,13 @@
         let currentUserId = null;
         let isAuthReady = false;
 
-        // Expose Firebase objects globally for use in the main script
+        // Expose Firebase objects globally (for debugging or if needed by other scripts)
         window.firebaseApp = app;
         window.firebaseDb = db;
         window.firebaseAuth = auth;
-        window.currentUserId = currentUserId; // Initialize global currentUserId
-        window.isAuthReady = isAuthReady; // Initialize global isAuthReady
-        window.appId = appId; // Use appId provided by Canvas for public collection path
+        window.currentUserId = currentUserId; 
+        window.isAuthReady = isAuthReady; 
+        window.appId = firebaseConfig.projectId; // Use projectId as appId for public collection path
 
         // Function to hide loading overlay
         function hideLoadingOverlay() {
@@ -177,16 +182,9 @@
             } else {
                 console.log("User not authenticated, attempting anonymous sign-in.");
                 try {
-                    // Use initialAuthToken provided by Canvas, or signInAnonymously if not available
-                    if (initialAuthToken) {
-                        await signInWithCustomToken(auth, initialAuthToken);
-                        currentUserId = auth.currentUser.uid;
-                        console.log("Signed in with custom token:", currentUserId);
-                    } else {
-                        await signInAnonymously(auth);
-                        currentUserId = auth.currentUser.uid;
-                        console.log("Signed in anonymously:", currentUserId);
-                    }
+                    await signInAnonymously(auth);
+                    currentUserId = auth.currentUser.uid;
+                    console.log("Signed in anonymously:", currentUserId);
                 } catch (error) {
                     console.error("Firebase authentication error:", error);
                     showMessage("Error de autenticación: " + error.message + ". La aplicación podría no funcionar correctamente.", 'error');
@@ -201,7 +199,7 @@
             console.log("Auth ready, setting up Firestore listeners.");
             
             // Listener for Expedientes
-            const expedientesCollectionRef = collection(db, `artifacts/${appId}/public/data/expedientes`); // Use appId from Canvas
+            const expedientesCollectionRef = collection(db, `artifacts/${firebaseConfig.projectId}/public/data/expedientes`);
             const qExpedientes = query(expedientesCollectionRef, orderBy("asunto", "asc"));
             onSnapshot(qExpedientes, (snapshot) => {
                 console.log("Firestore onSnapshot (expedientes) triggered. Data received:", snapshot.docs.length, "documents.");
@@ -217,7 +215,7 @@
             });
 
             // Listener for Custom Fields
-            const customFieldsCollectionRef = collection(db, `artifacts/${appId}/public/data/custom_fields`); // Use appId from Canvas
+            const customFieldsCollectionRef = collection(db, `artifacts/${firebaseConfig.projectId}/public/data/custom_fields`);
             const qCustomFields = query(customFieldsCollectionRef, orderBy("order", "asc")); // Order custom fields
             onSnapshot(qCustomFields, (snapshot) => {
                 console.log("Firestore onSnapshot (custom_fields) triggered. Data received:", snapshot.docs.length, "documents.");
@@ -861,7 +859,7 @@
             }
         });
 
-        document.getElementById('btn-clear-search').addEventListener('click', () => {
+        document.getElementById('btn-clear-search').addEventListener(() => {
             document.getElementById('search-input').value = '';
             loadExpedientesTable();
         });
