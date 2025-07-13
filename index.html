@@ -1,0 +1,771 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gestor de Archivos Físicos</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: "Inter", sans-serif;
+            background-color: #f0f4f8;
+        }
+        .container {
+            max-width: 1200px;
+            margin: auto;
+            padding: 20px;
+        }
+        .card {
+            background-color: #ffffff;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+            padding: 24px;
+            margin-bottom: 20px;
+        }
+        .btn {
+            @apply px-6 py-3 rounded-lg font-semibold transition-all duration-200 ease-in-out;
+        }
+        .btn-primary {
+            @apply bg-blue-600 text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50;
+        }
+        .btn-secondary {
+            @apply bg-gray-200 text-gray-800 hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-opacity-50;
+        }
+        .btn-danger {
+            @apply bg-red-600 text-white hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-opacity-50;
+        }
+        .input-field {
+            @apply mt-1 block w-full px-4 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm;
+        }
+        .label {
+            @apply block text-sm font-medium text-gray-700;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        th, td {
+            padding: 12px 15px;
+            text-align: left;
+            border-bottom: 1px solid #e2e8f0;
+        }
+        th {
+            background-color: #f8fafc;
+            font-weight: 600;
+            color: #4a5568;
+            text-transform: uppercase;
+            font-size: 0.85rem;
+        }
+        tr:hover {
+            background-color: #f0f4f8;
+        }
+        .scrollable-table {
+            max-height: 400px;
+            overflow-y: auto;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            margin-top: 15px;
+        }
+        /* Estilos para el mensaje flotante */
+        .message-box {
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: #4CAF50; /* Green */
+            color: white;
+            padding: 15px 25px;
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+            z-index: 1000;
+            opacity: 0;
+            transition: opacity 0.5s ease-in-out;
+        }
+        .message-box.show {
+            opacity: 1;
+        }
+        .message-box.error {
+            background-color: #f44336; /* Red */
+        }
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(255, 255, 255, 0.8);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 2000;
+            opacity: 1; 
+            transition: opacity 0.5s ease-in-out;
+        }
+        .loading-overlay.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+        .spinner {
+            border: 4px solid rgba(0, 0, 0, 0.1);
+            border-left-color: #2563eb;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+    <!-- Firebase SDKs -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, getDocs, doc, updateDoc, deleteDoc, onSnapshot, query, orderBy } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // --- INICIO DE CONFIGURACIÓN DE FIREBASE (¡IMPORTANTE!) ---
+        // ESTE OBJETO 'firebaseConfig' YA HA SIDO REEMPLAZADO CON TU CONFIGURACIÓN REAL.
+        // NO LO MODIFIQUES A MENOS QUE CAMBIES TU PROYECTO DE FIREBASE.
+        const firebaseConfig = {
+          apiKey: "AIzaSyAOY5kXOOXIEXGNZF5ywLM4msFQFR2mc3Q",
+          authDomain: "gestorarchivosfisicos.firebaseapp.com",
+          projectId: "gestorarchivosfisicos",
+          storageBucket: "gestorarchivosfisicos.firebasestorage.app",
+          messagingSenderId: "1087854555192",
+          appId: "1:1087854555192:web:d94f8b7fc6bf71c631f6cd"
+        };
+        // --- FIN DE CONFIGURACIÓN DE FIREBASE ---
+
+        // Initialize Firebase
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const auth = getAuth(app);
+
+        let currentUserId = null;
+        let isAuthReady = false;
+
+        // Expose Firebase objects globally for use in the main script
+        window.firebaseApp = app;
+        window.firebaseDb = db;
+        window.firebaseAuth = auth;
+        window.currentUserId = currentUserId;
+        window.isAuthReady = isAuthReady;
+        window.appId = firebaseConfig.projectId; // Use projectId as appId for public collection path
+
+        // Function to hide loading overlay
+        function hideLoadingOverlay() {
+            console.log("Intentando ocultar loading overlay.");
+            const loadingOverlay = document.getElementById('loading-overlay');
+            if (loadingOverlay) {
+                loadingOverlay.classList.add('hidden');
+                console.log("Loading overlay ocultado.");
+            }
+        }
+
+        // Set a timeout to hide loading overlay even if something goes wrong
+        setTimeout(() => {
+            if (!window.isAuthReady) {
+                console.warn("Timeout: Autenticación no completada en 15 segundos. Ocultando loading overlay.");
+                hideLoadingOverlay();
+                showMessage("La carga inicial tardó demasiado. Puede haber problemas de conexión o configuración de Firebase.", 'error');
+            }
+        }, 15000); // 15 segundos de timeout
+
+        // Authenticate user and set up auth state listener
+        onAuthStateChanged(auth, async (user) => {
+            console.log("onAuthStateChanged triggered.");
+            if (user) {
+                currentUserId = user.uid;
+                console.log("Authenticated with UID:", currentUserId);
+            } else {
+                console.log("User not authenticated, attempting anonymous sign-in.");
+                try {
+                    // No hay initialAuthToken fuera de Canvas, siempre signInAnonymously
+                    await signInAnonymously(auth);
+                    currentUserId = auth.currentUser.uid;
+                    console.log("Signed in anonymously:", currentUserId);
+                } catch (error) {
+                    console.error("Firebase authentication error:", error);
+                    showMessage("Error de autenticación: " + error.message + ". La aplicación podría no funcionar correctamente.", 'error');
+                    currentUserId = 'anonymous_error_' + Math.random().toString(36).substring(2, 10); // Fallback ID
+                }
+            }
+            window.currentUserId = currentUserId; // Update global userId
+            window.isAuthReady = true; // Mark auth as ready
+            document.getElementById('user-id-display').textContent = `ID de Usuario: ${currentUserId}`;
+            
+            // Now that auth is ready, set up the Firestore listener for expedientes and custom fields
+            console.log("Auth ready, setting up Firestore listeners.");
+            
+            // Listener for Expedientes
+            const expedientesCollectionRef = collection(db, `artifacts/${firebaseConfig.projectId}/public/data/expedientes`);
+            const qExpedientes = query(expedientesCollectionRef, orderBy("asunto", "asc"));
+            onSnapshot(qExpedientes, (snapshot) => {
+                console.log("Firestore onSnapshot (expedientes) triggered. Data received.");
+                window.expedientes = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                if (!document.getElementById('section-consulta').classList.contains('hidden')) {
+                    loadExpedientesTable(document.getElementById('search-input').value);
+                }
+                hideLoadingOverlay(); // Hide loading overlay after initial data is loaded
+            }, (error) => {
+                console.error("Error fetching expedientes: ", error);
+                showMessage("Error al cargar expedientes: " + error.message, 'error');
+                hideLoadingOverlay(); // Hide loading even on error
+            });
+
+            // Listener for Custom Fields
+            const customFieldsCollectionRef = collection(db, `artifacts/${firebaseConfig.projectId}/public/data/custom_fields`);
+            const qCustomFields = query(customFieldsCollectionRef, orderBy("order", "asc")); // Order custom fields
+            onSnapshot(qCustomFields, (snapshot) => {
+                console.log("Firestore onSnapshot (custom_fields) triggered. Data received.");
+                window.customFields = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                // If on the manage fields view, reload the table
+                if (!document.getElementById('section-manage-fields').classList.contains('hidden')) {
+                    loadCustomFieldsTable();
+                }
+            }, (error) => {
+                console.error("Error fetching custom fields: ", error);
+                showMessage("Error al cargar campos personalizados: " + error.message, 'error');
+            });
+
+        });
+    </script>
+</head>
+<body class="bg-gray-100 min-h-screen flex flex-col">
+    <!-- Loading Overlay -->
+    <div id="loading-overlay" class="loading-overlay">
+        <div class="spinner"></div>
+        <p class="ml-4 text-lg text-gray-700">Cargando...</p>
+    </div>
+
+    <div class="container mx-auto p-4 flex-grow">
+        <h1 class="text-4xl font-extrabold text-center text-gray-900 mb-6">Gestor de Archivos Físicos</h1>
+        <p id="user-id-display" class="text-center text-gray-600 text-sm mb-8">ID de Usuario: Cargando...</p>
+
+        <!-- Menú Principal -->
+        <div id="main-menu" class="card text-center">
+            <h2 class="text-2xl font-bold text-gray-800 mb-6">¿Qué acción deseas realizar?</h2>
+            <div class="flex flex-col md:flex-row justify-center space-y-4 md:space-y-0 md:space-x-6">
+                <button id="btn-show-alta" class="btn btn-primary">1. Ingresar Nuevo Expediente (ALTA)</button>
+                <button id="btn-show-consulta" class="btn btn-primary">2. Consultar / Gestionar Expedientes</button>
+                <button id="btn-show-manage-fields" class="btn btn-primary">3. Administrar Campos Personalizados</button>
+            </div>
+        </div>
+
+        <!-- Formulario de Alta/Edición -->
+        <div id="form-alta" class="card hidden">
+            <h2 id="form-alta-title" class="text-2xl font-bold text-gray-800 mb-6 text-center">Ingresar Nuevo Expediente</h2>
+            <form id="alta-form" class="space-y-4">
+                <!-- Campo oculto para almacenar el ID del expediente a editar -->
+                <input type="hidden" id="expediente-id-to-edit" value="">
+
+                <div>
+                    <label for="asunto" class="label">Asunto/Descripción del Expediente:</label>
+                    <input type="text" id="asunto" name="asunto" class="input-field" required>
+                </div>
+                <div>
+                    <label for="tipo_documento" class="label">Tipo de Documento:</label>
+                    <select id="tipo_documento" name="tipo_documento" class="input-field" required>
+                        <option value="">Selecciona un tipo</option>
+                        <option value="Contrato">Contrato</option>
+                        <option value="Factura">Factura</option>
+                        <option value="Recibo">Recibo</option>
+                        <option value="Informe">Informe</option>
+                        <option value="Legal">Legal</option>
+                        <option value="Recursos Humanos">Recursos Humanos</option>
+                        <option value="Cliente">Cliente</option>
+                        <option value="Proyecto">Proyecto</option>
+                        <option value="Correspondencia">Correspondencia</option>
+                    </select>
+                </div>
+                <div>
+                    <label for="fecha_documento" class="label">Fecha del Documento/Asunto (YYYY-MM-DD):</label>
+                    <input type="date" id="fecha_documento" name="fecha_documento" class="input-field" required>
+                </div>
+                <div>
+                    <label for="edificio" class="label">Ubicación: Edificio/Oficina:</label>
+                    <input type="text" id="edificio" name="edificio" class="input-field" required>
+                </div>
+                <div>
+                    <label for="armario" class="label">Ubicación: Armario/Estante:</label>
+                    <input type="text" id="armario" name="armario" class="input-field" required>
+                </div>
+                <div>
+                    <label for="cajon" class="label">Ubicación: Cajón/Caja:</label>
+                    <input type="text" id="cajon" name="cajon" class="input-field" required>
+                </div>
+                <div>
+                    <label for="notas" class="label">Notas Adicionales:</label>
+                    <textarea id="notas" name="notas" rows="3" class="input-field"></textarea>
+                </div>
+                <div class="flex justify-center space-x-4 mt-6">
+                    <button type="submit" id="submit-alta-form" class="btn btn-primary">Guardar Expediente</button>
+                    <button type="button" id="btn-back-alta" class="btn btn-secondary">Volver al Menú</button>
+                </div>
+            </form>
+        </div>
+
+        <!-- Sección de Consulta -->
+        <div id="section-consulta" class="card hidden">
+            <h2 class="text-2xl font-bold text-gray-800 mb-6 text-center">Lista de Expedientes y Gestión</h2>
+
+            <div class="mb-4 flex flex-col md:flex-row items-center space-y-3 md:space-y-0 md:space-x-4">
+                <label for="search-input" class="label mb-0 md:mb-0">Buscar por Asunto:</label>
+                <input type="text" id="search-input" class="input-field flex-grow" placeholder="Escribe parte del asunto...">
+                <button id="btn-search" class="btn btn-secondary">Buscar</button>
+                <button id="btn-clear-search" class="btn btn-secondary">Mostrar Todos</button>
+            </div>
+
+            <div class="scrollable-table">
+                <table id="expedientes-table">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Asunto</th>
+                            <th>Tipo</th>
+                            <th>Fecha Doc.</th>
+                            <th>Ubicación</th>
+                            <th>Estado</th>
+                            <th>Últ. Mov.</th>
+                            <th>Persona Mov.</th>
+                            <th>Notas</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <!-- Los expedientes se cargarán aquí -->
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="flex flex-col md:flex-row justify-center space-y-4 md:space-y-0 md:space-x-6 mt-8">
+                <button type="button" id="btn-editar" class="btn btn-primary">Editar Expediente</button>
+                <button type="button" id="btn-retirar" class="btn btn-primary">Retirar Expediente</button>
+                <button type="button" id="btn-regresar" class="btn btn-primary">Regresar Expediente</button>
+                <button type="button" id="btn-eliminar" class="btn btn-danger">Eliminar Expediente</button>
+                <button type="button" id="btn-back-consulta" class="btn btn-secondary">Volver al Menú</button>
+            </div>
+        </div>
+
+        <!-- Sección de Administrar Campos Personalizados -->
+        <div id="section-manage-fields" class="card hidden">
+            <h2 class="text-2xl font-bold text-gray-800 mb-6 text-center">Administrar Campos Personalizados</h2>
+            <p class="text-center text-gray-600 mb-4">Aquí puedes definir nuevos campos para tus expedientes.</p>
+
+            <form id="add-field-form" class="space-y-4 mb-8 p-4 border border-gray-200 rounded-lg bg-gray-50">
+                <div class="flex flex-col md:flex-row items-center space-y-3 md:space-y-0 md:space-x-4">
+                    <div class="flex-grow">
+                        <label for="new_field_name" class="label">Nombre del Campo:</label>
+                        <input type="text" id="new_field_name" class="input-field" placeholder="Ej: 'Número de Contrato'" required>
+                    </div>
+                    <div class="flex-grow">
+                        <label for="new_field_type" class="label">Tipo de Campo:</label>
+                        <select id="new_field_type" class="input-field" required>
+                            <option value="">Selecciona tipo</option>
+                            <option value="text">Texto</option>
+                            <option value="number">Número</option>
+                            <option value="date">Fecha</option>
+                            <option value="select">Lista Desplegable (próximamente)</option>
+                        </select>
+                    </div>
+                    <button type="submit" class="btn btn-primary mt-6 md:mt-0">Añadir Campo</button>
+                </div>
+            </form>
+
+            <div class="scrollable-table">
+                <table id="custom-fields-table">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Nombre del Campo</th>
+                            <th>Tipo de Campo</th>
+                            <th>Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <!-- Los campos personalizados se cargarán aquí -->
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="flex justify-center mt-8">
+                <button type="button" id="btn-back-manage-fields" class="btn btn-secondary">Volver al Menú</button>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Message Box for notifications -->
+    <div id="message-box" class="message-box"></div>
+
+    <script type="module">
+        // Importar módulos de Firebase (ya están en el head, pero se redefinen para el scope del módulo)
+        import { getFirestore, collection, addDoc, getDocs, doc, updateDoc, deleteDoc, onSnapshot, query, orderBy } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Referencias globales de Firebase expuestas por el script del head
+        const db = window.firebaseDb;
+        const auth = window.firebaseAuth;
+        let currentUserId = window.currentUserId; // Se actualizará con el onAuthStateChanged
+        let isAuthReady = window.isAuthReady; // Se actualizará con el onAuthStateChanged
+        const appId = window.appId; // Ahora es firebaseConfig.projectId
+
+        // --- Funciones de Utilidad ---
+        function showMessage(message, type = 'success') {
+            const msgBox = document.getElementById('message-box');
+            msgBox.textContent = message;
+            msgBox.className = 'message-box show'; // Reset classes
+            if (type === 'error') {
+                msgBox.classList.add('error');
+            } else {
+                msgBox.classList.remove('error');
+            }
+            setTimeout(() => {
+                msgBox.classList.remove('show');
+            }, 3000);
+        }
+
+        // --- Gestión de Vistas ---
+        const mainMenu = document.getElementById('main-menu');
+        const formAlta = document.getElementById('form-alta');
+        const sectionConsulta = document.getElementById('section-consulta');
+        const sectionManageFields = document.getElementById('section-manage-fields'); // Nueva sección
+        const formAltaTitle = document.getElementById('form-alta-title');
+        const expedienteIdToEdit = document.getElementById('expediente-id-to-edit');
+
+
+        function showView(viewId) {
+            mainMenu.classList.add('hidden');
+            formAlta.classList.add('hidden');
+            sectionConsulta.classList.add('hidden');
+            sectionManageFields.classList.add('hidden'); // Ocultar nueva sección
+
+            document.getElementById(viewId).classList.remove('hidden');
+        }
+
+        // --- Operaciones con Firestore ---
+        // Colecciones de Firestore
+        const expedientesCollectionRef = collection(db, `artifacts/${appId}/public/data/expedientes`);
+        const customFieldsCollectionRef = collection(db, `artifacts/${appId}/public/data/custom_fields`); // Nueva colección
+
+        let expedientes = []; // Array local para expedientes
+        let customFields = []; // Array local para campos personalizados
+
+        // Función para Ingresar Nuevo Expediente (ALTA) o Editar
+        document.getElementById('alta-form').addEventListener('submit', async function(event) {
+            event.preventDefault();
+
+            if (!isAuthReady) {
+                showMessage('Autenticando... Por favor, espera un momento.', 'error');
+                return;
+            }
+
+            const expedienteData = {
+                asunto: document.getElementById('asunto').value.trim(),
+                tipo_documento: document.getElementById('tipo_documento').value,
+                fecha_documento: document.getElementById('fecha_documento').value,
+                edificio: document.getElementById('edificio').value.trim(),
+                armario: document.getElementById('armario').value.trim(),
+                cajon: document.getElementById('cajon').value.trim(),
+                notas: document.getElementById('notas').value.trim()
+            };
+
+            // Validaciones básicas
+            if (!expedienteData.asunto || !expedienteData.tipo_documento || !expedienteData.fecha_documento ||
+                !expedienteData.edificio || !expedienteData.armario || !expedienteData.cajon) {
+                showMessage('Por favor, completa todos los campos obligatorios.', 'error');
+                return;
+            }
+
+            const currentExpedienteId = expedienteIdToEdit.value;
+
+            try {
+                if (currentExpedienteId) {
+                    // Si hay un ID, estamos EDITANDO un expediente existente
+                    const docRef = doc(db, `artifacts/${appId}/public/data/expedientes`, currentExpedienteId);
+                    await updateDoc(docRef, expedienteData);
+                    showMessage('Expediente actualizado correctamente.');
+                } else {
+                    // Si no hay ID, estamos CREANDO un nuevo expediente
+                    expedienteData.estado = 'En Archivo';
+                    expedienteData.fecha_ultimo_movimiento = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+                    expedienteData.persona_movimiento = window.currentUserId; // Quien lo dio de alta
+                    await addDoc(expedientesCollectionRef, expedienteData);
+                    showMessage('Expediente guardado correctamente en la nube.');
+                }
+                this.reset(); // Limpiar el formulario
+                expedienteIdToEdit.value = ''; // Limpiar el ID de edición
+                formAltaTitle.textContent = 'Ingresar Nuevo Expediente'; // Restablecer título
+                document.getElementById('submit-alta-form').textContent = 'Guardar Expediente'; // Restablecer texto del botón
+                showView('section-consulta'); // Volver a la vista de consulta
+            } catch (e) {
+                console.error("Error al guardar/actualizar documento: ", e);
+                showMessage('Error al guardar/actualizar expediente: ' + e.message, 'error');
+            }
+        });
+
+
+        // Función para Cargar y Mostrar Expedientes en la Tabla
+        function loadExpedientesTable(filterText = '') {
+            const tableBody = document.querySelector('#expedientes-table tbody');
+            tableBody.innerHTML = ''; // Limpiar tabla
+
+            const filteredExpedientes = expedientes.filter(exp =>
+                exp.asunto.toLowerCase().includes(filterText.toLowerCase())
+            );
+
+            if (filteredExpedientes.length === 0 && filterText) {
+                const row = tableBody.insertRow();
+                row.innerHTML = `<td colspan="9" class="text-center py-4 text-gray-500">No se encontraron expedientes con ese asunto.</td>`;
+                return;
+            } else if (filteredExpedientes.length === 0) {
+                 const row = tableBody.insertRow();
+                row.innerHTML = `<td colspan="9" class="text-center py-4 text-gray-500">No hay expedientes registrados.</td>`;
+                return;
+            }
+
+
+            filteredExpedientes.forEach(exp => {
+                const row = tableBody.insertRow();
+                row.dataset.id = exp.id; // Guardar el ID del documento de Firestore
+                row.classList.add('cursor-pointer', 'hover:bg-blue-50'); // Estilo para indicar que es seleccionable
+
+                row.innerHTML = `
+                    <td>${exp.id.substring(0, 5)}...</td> <!-- Mostrar ID corto -->
+                    <td>${exp.asunto}</td>
+                    <td>${exp.tipo_documento}</td>
+                    <td>${exp.fecha_documento}</td>
+                    <td>${exp.edificio}, ${exp.armario}, ${exp.cajon}</td>
+                    <td><span class="${exp.estado === 'Retirado' ? 'text-red-600 font-semibold' : 'text-green-600 font-semibold'}">${exp.estado}</span></td>
+                    <td>${exp.fecha_ultimo_movimiento || ''}</td>
+                    <td>${exp.persona_movimiento || ''}</td>
+                    <td>${exp.notas || ''}</td>
+                `;
+
+                // Añadir evento de clic para seleccionar la fila
+                row.addEventListener('click', () => {
+                    // Remover selección de otras filas
+                    document.querySelectorAll('#expedientes-table tbody tr').forEach(r => r.classList.remove('bg-blue-200'));
+                    // Añadir selección a la fila clicada
+                    row.classList.add('bg-blue-200');
+                });
+            });
+        }
+
+        // Función para obtener el ID del expediente seleccionado en la tabla
+        function getSelectedExpedienteFirestoreId() {
+            const selectedRow = document.querySelector('#expedientes-table tbody tr.bg-blue-200');
+            if (!selectedRow) {
+                showMessage('Por favor, selecciona un expediente de la lista.', 'error');
+                return null;
+            }
+            return selectedRow.dataset.id; // Retorna el ID completo de Firestore
+        }
+
+        // Función para Retirar Expediente (Baja Lógica)
+        document.getElementById('btn-retirar').addEventListener('click', async function() {
+            const id = getSelectedExpedienteFirestoreId();
+            if (id === null) return;
+
+            const persona = prompt('Por favor, ingresa el nombre de la persona que retira el expediente:');
+            if (persona) {
+                try {
+                    const docRef = doc(db, `artifacts/${appId}/public/data/expedientes`, id);
+                    await updateDoc(docRef, {
+                        estado: 'Retirado',
+                        fecha_ultimo_movimiento: new Date().toISOString().split('T')[0],
+                        persona_movimiento: persona // Registra la persona que retira
+                    });
+                    showMessage('Expediente marcado como RETIRADO.');
+                } catch (e) {
+                    console.error("Error updating document: ", e);
+                    showMessage('Error al retirar expediente: ' + e.message, 'error');
+                }
+            } else {
+                showMessage('Se requiere el nombre de la persona para registrar el retiro.', 'error');
+            }
+        });
+
+        // Función para Regresar Expediente
+        document.getElementById('btn-regresar').addEventListener('click', async function() {
+            const id = getSelectedExpedienteFirestoreId();
+            if (id === null) return;
+
+            const persona = prompt('Por favor, ingresa el nombre de la persona que regresa el expediente:');
+            if (persona) {
+                try {
+                    const docRef = doc(db, `artifacts/${appId}/public/data/expedientes`, id);
+                    await updateDoc(docRef, {
+                        estado: 'En Archivo',
+                        fecha_ultimo_movimiento: new Date().toISOString().split('T')[0],
+                        persona_movimiento: persona // Registra la persona que regresa
+                    });
+                    showMessage('Expediente marcado como EN ARCHIVO.');
+                } catch (e) {
+                    console.error("Error updating document: ", e);
+                    showMessage('Error al regresar expediente: ' + e.message, 'error');
+                }
+            } else {
+                showMessage('Se requiere el nombre de la persona para registrar el regreso.', 'error');
+            }
+        });
+
+        // Función para Editar Expediente
+        document.getElementById('btn-editar').addEventListener('click', function() {
+            const id = getSelectedExpedienteFirestoreId();
+            if (id === null) return;
+
+            const expedienteToEdit = expedientes.find(exp => exp.id === id);
+            if (expedienteToEdit) {
+                // Precargar el formulario con los datos del expediente
+                document.getElementById('asunto').value = expedienteToEdit.asunto;
+                document.getElementById('tipo_documento').value = expedienteToEdit.tipo_documento;
+                document.getElementById('fecha_documento').value = expedienteToEdit.fecha_documento;
+                document.getElementById('edificio').value = expedienteToEdit.edificio;
+                document.getElementById('armario').value = expedienteToEdit.armario;
+                document.getElementById('cajon').value = expedienteToEdit.cajon;
+                document.getElementById('notas').value = expedienteToEdit.notas;
+                
+                // Guardar el ID del expediente en el campo oculto para saber que estamos editando
+                expedienteIdToEdit.value = expedienteToEdit.id;
+                formAltaTitle.textContent = 'Editar Expediente'; // Cambiar el título del formulario
+                document.getElementById('submit-alta-form').textContent = 'Actualizar Expediente'; // Cambiar texto del botón
+
+                showView('form-alta'); // Mostrar el formulario de alta/edición
+            } else {
+                showMessage('No se encontró el expediente para editar.', 'error');
+            }
+        });
+
+
+        // Función para Eliminar Expediente (Baja Definitiva)
+        document.getElementById('btn-eliminar').addEventListener('click', async function() {
+            const id = getSelectedExpedienteFirestoreId();
+            if (id === null) return;
+
+            if (confirm('¿Estás seguro de que quieres ELIMINAR este expediente de forma definitiva? Esta acción no se puede deshacer.')) {
+                try {
+                    const docRef = doc(db, `artifacts/${appId}/public/data/expedientes`, id);
+                    await deleteDoc(docRef);
+                    showMessage('Expediente eliminado definitivamente.');
+                } catch (e) {
+                    console.error("Error deleting document: ", e);
+                    showMessage('Error al eliminar expediente: ' + e.message, 'error');
+                }
+            }
+        });
+
+        // --- Funciones para Administrar Campos Personalizados ---
+        document.getElementById('add-field-form').addEventListener('submit', async function(event) {
+            event.preventDefault();
+            if (!isAuthReady) {
+                showMessage('Autenticando... Por favor, espera un momento.', 'error');
+                return;
+            }
+
+            const fieldName = document.getElementById('new_field_name').value.trim();
+            const fieldType = document.getElementById('new_field_type').value;
+
+            if (!fieldName || !fieldType) {
+                showMessage('Por favor, ingresa el nombre y tipo del campo.', 'error');
+                return;
+            }
+
+            // Simple validation to prevent duplicate names (case-insensitive)
+            if (window.customFields.some(field => field.name.toLowerCase() === fieldName.toLowerCase())) {
+                showMessage('Ya existe un campo con ese nombre.', 'error');
+                return;
+            }
+
+            try {
+                const newField = {
+                    name: fieldName,
+                    type: fieldType,
+                    order: window.customFields.length // Simple ordering
+                };
+                await addDoc(customFieldsCollectionRef, newField);
+                showMessage('Campo personalizado añadido correctamente.');
+                this.reset();
+            } catch (e) {
+                console.error("Error adding custom field: ", e);
+                showMessage('Error al añadir campo: ' + e.message, 'error');
+            }
+        });
+
+        function loadCustomFieldsTable() {
+            const tableBody = document.querySelector('#custom-fields-table tbody');
+            tableBody.innerHTML = '';
+
+            if (window.customFields.length === 0) {
+                const row = tableBody.insertRow();
+                row.innerHTML = `<td colspan="4" class="text-center py-4 text-gray-500">No hay campos personalizados definidos.</td>`;
+                return;
+            }
+
+            window.customFields.forEach(field => {
+                const row = tableBody.insertRow();
+                row.dataset.id = field.id;
+                row.innerHTML = `
+                    <td>${field.id.substring(0, 5)}...</td>
+                    <td>${field.name}</td>
+                    <td>${field.type}</td>
+                    <td>
+                        <button class="btn-danger p-2 text-sm rounded-md" onclick="deleteCustomField('${field.id}')">Eliminar</button>
+                    </td>
+                `;
+            });
+        }
+
+        window.deleteCustomField = async function(fieldId) {
+            if (confirm('¿Estás seguro de que quieres eliminar este campo personalizado? Esto NO eliminará los datos ya guardados en los expedientes, solo el campo de la definición.')) {
+                try {
+                    const docRef = doc(db, `artifacts/${appId}/public/data/custom_fields`, fieldId);
+                    await deleteDoc(docRef);
+                    showMessage('Campo personalizado eliminado.');
+                } catch (e) {
+                    console.error("Error deleting custom field: ", e);
+                    showMessage('Error al eliminar campo: ' + e.message, 'error');
+                }
+            }
+        };
+
+        // --- Eventos de Navegación ---
+        document.getElementById('btn-show-alta').addEventListener('click', () => {
+            document.getElementById('alta-form').reset();
+            expedienteIdToEdit.value = '';
+            formAltaTitle.textContent = 'Ingresar Nuevo Expediente';
+            document.getElementById('submit-alta-form').textContent = 'Guardar Expediente';
+            showView('form-alta');
+        });
+        document.getElementById('btn-show-consulta').addEventListener('click', () => {
+            showView('section-consulta');
+            // loadExpedientesTable() se llama automáticamente por el onSnapshot listener
+        });
+        document.getElementById('btn-show-manage-fields').addEventListener('click', () => { // Nuevo botón
+            showView('section-manage-fields');
+            loadCustomFieldsTable(); // Cargar la tabla de campos al mostrar la vista
+        });
+        document.getElementById('btn-back-alta').addEventListener('click', () => showView('main-menu'));
+        document.getElementById('btn-back-consulta').addEventListener('click', () => showView('main-menu'));
+        document.getElementById('btn-back-manage-fields').addEventListener('click', () => showView('main-menu')); // Nuevo botón
+
+        // --- Eventos de Búsqueda ---
+        document.getElementById('btn-search').addEventListener('click', () => {
+            const searchText = document.getElementById('search-input').value;
+            loadExpedientesTable(searchText);
+        });
+
+        document.getElementById('search-input').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                const searchText = document.getElementById('search-input').value;
+                loadExpedientesTable(searchText);
+            }
+        });
+
+        document.getElementById('btn-clear-search').addEventListener('click', () => {
+            document.getElementById('search-input').value = '';
+            loadExpedientesTable();
+        });
+    </script>
+</body>
+</html>
